@@ -1,4 +1,4 @@
-package main
+package xfbot
 
 import (
 	"context"
@@ -309,8 +309,8 @@ func xfBot() {
 	// Testing purpose
 }
 
-func main() {
-	go xfBot()
-	select {}
-	//xfBot()
+func Bot() {
+	//go xfBot()
+	//select {}
+	xfBot()
 }
