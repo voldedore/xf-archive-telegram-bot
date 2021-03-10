@@ -87,22 +87,24 @@ func fetchMessages(threadLink string, b *tb.Bot, channel *tb.Chat) {
 	}
 
 	newestPostId, newestPage := fetchPage(threadLink, storedPageNo, lastPostId)
-	if storedPageNo < newestPage {
-		for i := storedPageNo; i <= newestPage; i++ {
-			newestPostId, _ = fetchPage(threadLink, i, lastPostId)
+	if newestPostId != 0 {
+		if storedPageNo < newestPage {
+			for i := storedPageNo; i <= newestPage; i++ {
+				newestPostId, _ = fetchPage(threadLink, i, lastPostId)
+			}
 		}
-	}
 
-	// Update lastId
-	log.Printf("Last Post id = %d", newestPostId)
-	updateInfo(threadId, newestPage, newestPostId)
+		// Update lastId
+		log.Printf("Last Post id = %d", newestPostId)
+		updateInfo(threadId, newestPage, newestPostId)
 
-	log.Println("Publishing...")
-	for _, el := range messages {
-		b.Send(channel, makeMessage(threadId, el.Body, el.URL, el.Time, el.CreatedBy.Name), tb.ModeMarkdown)
+		log.Println("Publishing...")
+		for _, el := range messages {
+			b.Send(channel, makeMessage(threadId, el.Body, el.URL, el.Time, el.CreatedBy.Name), tb.ModeMarkdown)
+		}
+		messages = []*Message{}
+		log.Println("End publishing...")
 	}
-	messages = []*Message{}
-	log.Println("End publishing...")
 }
 
 func fetchPage(threadLink string, pageNo int, storedPostId int64) (int64, int) {
@@ -111,45 +113,47 @@ func fetchPage(threadLink string, pageNo int, storedPostId int64) (int64, int) {
 	var lastId int64
 	newPage := 1
 
-	// Post looking
-	doc.Find("article.message").Each(func(i int, s *goquery.Selection) {
-		postIdStr, _ := s.Attr("data-content")
-		postId, _ := strconv.ParseInt(postIdStr[5:], 0, 64)
-		lastId = postId
+	if doc != nil {
+		// Post looking
+		doc.Find("article.message").Each(func(i int, s *goquery.Selection) {
+			postIdStr, _ := s.Attr("data-content")
+			postId, _ := strconv.ParseInt(postIdStr[5:], 0, 64)
+			lastId = postId
 
-		if postId > storedPostId {
-			log.Printf("%d", postId)
+			if postId > storedPostId {
+				log.Printf("%d", postId)
 
-			userIDStr, _ := s.Find("h4.message-name a").Attr("data-user-id")
-			uid, _ := strconv.ParseInt(userIDStr, 0, 64)
-			user := &User{ID: uid}
-			user.Name = s.Find("h4.message-name a").Text()
+				userIDStr, _ := s.Find("h4.message-name a").Attr("data-user-id")
+				uid, _ := strconv.ParseInt(userIDStr, 0, 64)
+				user := &User{ID: uid}
+				user.Name = s.Find("h4.message-name a").Text()
 
-			message := &Message{Body: s.Find("article.message-body .bbWrapper").Text(),
-				CreatedBy: user}
-			messageTimeRaw, _ := s.Find(".message-attribution time").Attr("data-time")
-			messageTime, _ := strconv.ParseInt(messageTimeRaw, 0, 64)
-			message.Time = time.Unix(messageTime, 0)
+				message := &Message{Body: s.Find("article.message-body .bbWrapper").Text(),
+					CreatedBy: user}
+				messageTimeRaw, _ := s.Find(".message-attribution time").Attr("data-time")
+				messageTime, _ := strconv.ParseInt(messageTimeRaw, 0, 64)
+				message.Time = time.Unix(messageTime, 0)
 
-			messagePermalink, _ := s.Find(".message-attribution a").Attr("href")
-			message.URL = messagePermalink
-			message.ID = postId
-			messages = append(messages, message)
+				messagePermalink, _ := s.Find(".message-attribution a").Attr("href")
+				message.URL = messagePermalink
+				message.ID = postId
+				messages = append(messages, message)
+			}
+		})
+
+		// Page looking
+		pageNav := doc.Find(".pageNav-main")
+		if pageNav != nil {
+			pageNavEl := pageNav.First()
+			str, err := pageNavEl.Children().Last().Children().First().Html()
+			if err != nil {
+				log.Fatal(err)
+			}
+			newPage, _ = strconv.Atoi(str)
+			log.Printf("Newest page: %s", str)
 		}
-	})
 
-	// Page looking
-	pageNav := doc.Find(".pageNav-main")
-	if pageNav != nil {
-		pageNavEl := pageNav.First()
-		str, err := pageNavEl.Children().Last().Children().First().Html()
-		if err != nil {
-			log.Fatal(err)
-		}
-		newPage, _ = strconv.Atoi(str)
-		log.Printf("Newest page: %s", str)
 	}
-
 	return lastId, newPage
 }
 
