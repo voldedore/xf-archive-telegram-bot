@@ -2,7 +2,7 @@ package xfbot
 
 import (
 	"context"
-	"strings"
+	//"strings"
 	// "encoding/json"
 	"fmt"
 	"log"
@@ -69,28 +69,26 @@ func getOsEnv(variable string, required bool, defaultVal string) string {
 	return res
 }
 
-func buildVozLink(threadLink string) string {
-	return vozUrl + "/t/" + threadLink
+func buildVozLink(threadId int64) string {
+	return vozUrl + "/t/" + strconv.FormatInt(threadId, 10)
 }
 
 func buildXfLinkWithPageParam(xfThreadLink string, pageNo int) string {
 	return xfThreadLink + "/" + pageParam + strconv.Itoa(pageNo)
 }
 
-func fetchMessages(threadLink string, b *tb.Bot, channel *tb.Chat) {
-	threadIdStr := strings.Split(threadLink, ".")[1]
-	threadId, _ := strconv.ParseInt(threadIdStr, 0, 64)
+func fetchMessages(threadId int64, b *tb.Bot, channel *tb.Chat) {
 	storedPageNo, lastPostId := getLastInfo(threadId)
 
 	if lastPostId == 0 {
 		initCollection(threadId)
 	}
 
-	newestPostId, newestPage := fetchPage(threadLink, storedPageNo, lastPostId)
+	newestPostId, newestPage := fetchPage(threadId, storedPageNo, lastPostId)
 	if newestPostId != 0 {
 		if storedPageNo < newestPage {
 			for i := storedPageNo; i <= newestPage; i++ {
-				newestPostId, _ = fetchPage(threadLink, i, lastPostId)
+				newestPostId, _ = fetchPage(threadId, i, lastPostId)
 			}
 		}
 
@@ -107,8 +105,8 @@ func fetchMessages(threadLink string, b *tb.Bot, channel *tb.Chat) {
 	}
 }
 
-func fetchPage(threadLink string, pageNo int, storedPostId int64) (int64, int) {
-	doc := getDocument(buildXfLinkWithPageParam(buildVozLink(threadLink), pageNo))
+func fetchPage(threadId int64, pageNo int, storedPostId int64) (int64, int) {
+	doc := getDocument(buildXfLinkWithPageParam(buildVozLink(threadId), pageNo))
 
 	var lastId int64
 	newPage := 1
@@ -271,7 +269,6 @@ func getDocument(url string) *goquery.Document {
 }
 
 func xfBot() {
-	thread1 := getOsEnv("THREAD_1", true, "")
 	b, err := tb.NewBot(tb.Settings{
 		Token:  os.Getenv("NEWS_BOT_SECRET_TOKEN"),
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
@@ -295,17 +292,29 @@ func xfBot() {
 	}
 
 	getDB()
-	fetchMessages(thread1, b, channel)
 
-	// Cron
-	// The legacy syntax (asterisks) doesn't work if this package is imported to another program
-	// Although it runs well directly if this package was compile as a complete program
-	c := cron.New()
-	c.AddFunc("@every 5m", func() {
-		fetchMessages(thread1, b, channel)
-	})
+	// Get list of thread to crawl
+	cursor, err := collection.Find(context.TODO(), bson.D{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	var results []Stat
+	if err = cursor.All(context.TODO(), &results); err != nil {
+		log.Fatal(err)
+	}
+	for _, result := range results {
+		fetchMessages(result.ThreadId, b, channel)
+		// Cron
+		// The legacy syntax (asterisks) doesn't work if this package is imported to another program
+		// Although it runs well directly if this package was compile as a complete program
+		c := cron.New()
+		c.AddFunc("@every 5m", func() {
+			fetchMessages(result.ThreadId, b, channel)
+		})
 
-	c.Start()
+		c.Start()
+	}
+
 	// Testing purpose
 }
 
